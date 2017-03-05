@@ -7,7 +7,7 @@ Contents:     Simple example application to read out a several
 DRS4 evaluation board in daisy-chain mode
 
 Outputs a file with a filename
-2017-02-15_16h43m45s345_5000MSPS_-0050mV-0950mV_060000psDelay_Rising_AND_CH1-XXXXXX_CH2-50mV_CH3-XXXXXX_Ch4-50mV_EXT-X_50events.dat
+2017-02-15_16h43m45s345_5000MSPS_-0050mV-0950mV_060000psDelay_Rising_AND_CH1-XXXXXX_CH2-0050mV_CH3-XXXXXX_Ch4-0050mV_EXT-X_00000050-Events_00003600-Seconds.dat
 
 \********************************************************************/
 
@@ -20,8 +20,6 @@ Outputs a file with a filename
 #include <ctype.h>
 #include <sys/ioctl.h>
 #include <errno.h>
-
-#define DIR_SEPARATOR '/'
 
 #include <stdio.h>
 #include <string.h>
@@ -37,30 +35,14 @@ Outputs a file with a filename
 #include "DRS.h"
 #include <drsLog.h>
 
-// Configuration
-#define RANGECENTER 0.45       // -0.05V to 0.95V
-#define SAMPLESPEED 5.0        // 5 GS/S
-#define MAXEVENTS 50
-#define MAXTIME   5
-
-volatile int killSignalFlag = 0;
-
-const double timeResolution = 1.0 / SAMPLESPEED;    // Time resolution in ns
-const double sampleWindow = timeResolution * 1024;  // 1024 bins * resloution
-
-// Trigger config
-trigger_t trigger = {false,                     // fasle = Rising edge, true = falling edge
-                     true,                      // false = OR         , true = AND
-                     {0, 1, 1, 0, 0},           // CH1, CH2, CH3, CH4, EXT
-                     {0.05, 0.05, 0.05, 0.05},  // Trigger threshold in Volts  
-                     60.0};                     // Trigger delay from start of sample window
-
 /*------------------------------------------------------------------*/
 
 // Global
 DRSBoard* b;
+volatile int killSignalFlag = 0;
 
-int main() {
+int main(int argc, char** argv) {
+
   m_drs = NULL;
   m_board = 0;
   m_writeSR[0] = 0;
@@ -68,6 +50,132 @@ int main() {
 
   int i, j;
   DRS* drs;
+
+  // Should consider changing to opt
+   if (argc != 14){
+      printf("Usage: %s" , argv[0]);
+      printf("\n      <sample speed (0.1-6)            (5.0)GSPS>");
+      printf("\n      <range center                    (0.450)V>");
+      printf("\n      <trigger delay                   (60.0)ns>");      
+      printf("\n      <trigger type [R|F]              (R)ising edge>");
+      printf("\n      <trigger logic [AND|OR]          (AND) logic>");
+      printf("\n      <trigger [CH1,CH2,CH3,CH4,EXT]   (01010) CH2,CH4>");
+      printf("\n      <trigger voltage CH1             (0.050)V>");
+      printf("\n      <trigger voltage CH2             (0.060)V>");
+      printf("\n      <trigger voltage CH3             (0.800)V>");
+      printf("\n      <trigger voltage CH4             (0.020)V>");
+      printf("\n      <max events                      (10000) events>");
+      printf("\n      <max time                        (3600) seconds>");
+      printf("\n      <path                            ../data>");
+      printf("\n");
+      printf("\n      %s 5.0 0.45 60.0 R AND 01010 0.1 0.1 0.1 100 50 5 .",argv[0]);
+      printf("\n");
+      return 1;
+    }
+
+    trigger_t trigger;
+
+    // Sample Speed
+    double sampleSpeed; // 0.1 to 6 GS/s
+    if((strtof(argv[1],NULL) < 0.1) | (strtof(argv[1],NULL) > 6)){
+      printf("Sample Speed, %f out of range (0.1 GSPS -6 GSPS).\n", strtof(argv[1],NULL));
+      return 1;      
+    } else {
+      sampleSpeed = strtof(argv[01],NULL);
+    }
+
+    // Range Center
+    double rangeCenter; // 0 to 0.5 V
+    if((strtof(argv[2],NULL) < 0) | (strtof(argv[2],NULL) > 0.5)){
+      printf("Range Center, %f out of range (0 V - 0.5 V).\n", strtof(argv[2],NULL));
+      return 1;      
+    } else {
+      rangeCenter = strtof(argv[2],NULL);
+    }
+
+    // Trigger Delay
+    if((strtof(argv[3],NULL) < 0) | ((strtof(argv[3],NULL)) > ((1/sampleSpeed)*1024))){
+      printf("Trigger delay, %f, out of range (0 ns - %f ns).\n", strtof(argv[3],NULL), ((1/sampleSpeed)*1024));
+      return 1;
+    } else {
+      trigger.triggerDelay = strtof(argv[3],NULL);
+    }
+
+    // Trigger Edge polarity: fasle = Rising edge, true = falling edge
+    if(argv[4][0] == 'R'){
+      trigger.triggerPolarity = false;
+    } else if (argv[4][0] == 'F') {
+      trigger.triggerPolarity = true;
+    } else {
+      printf("Trigger edge type, %s not vaild, enter 'R' for rising or 'F' for falling.\n", argv[4]);
+      return 1;
+    }
+
+    // Trigger Logic: false = OR, true = AND
+    if(!strcmp(argv[5],"AND")){
+      trigger.triggerLogic = true;
+    } else if (!strcmp(argv[5],"OR")){
+      trigger.triggerLogic = false;
+    } else {
+      printf("Logic type, %s is not valid. Enter either 'AND' or 'OR'.\n", argv[5]);
+    }
+
+    // Trigger
+    if(strlen(argv[6]) == 5){
+      for(unsigned int i = 0 ; i < sizeof(argv[6])/sizeof(argv[6][0]) ; i ++){
+        if(argv[6][i] == '0'){
+          trigger.triggerSource[i] = 0;
+        } else if (argv[6][i] == '1'){
+          trigger.triggerSource[i] = 1;
+        } else {
+          printf("Trigger argument for CH%d, '%c' is not valid it must be either '0' (diabled) or '1'(enabled).\n", i+1, argv[6][i]);
+          return 1;
+        }
+      }
+    } else {
+      printf("Trigger number of arguments, %d do not match, you must have 5 (CH1,CH2,CH3,Ch4,EXT).\n", strlen(argv[6]));
+      return 1;
+    }
+
+    // Trigger Levels
+    for(int i = 0 ; i < 4 ; i ++){
+      double level = strtod(argv[7+i],NULL);
+      double minRange = rangeCenter - 0.5;
+      double maxRange = rangeCenter + 0.5;
+      if((level < minRange) | (level > maxRange)){
+        printf("Trigger level for CH%d, %f out of range %f V - %f V.\n", i+1, level, minRange, maxRange);
+        return 1;
+      } else {
+        trigger.triggerLevel[i] = level;
+      }
+    }
+    
+    // Max Events
+    long maxEvents; // 1-max_long Events 
+    if(strtol(argv[11],NULL,10) < 1){
+      printf("Events, %ld out of range (1 Event - 2^64 Events).\n", strtol(argv[11],NULL,10));
+      return 1;
+    } else {
+      maxEvents = strtol(argv[11],NULL,10);
+    }
+
+    long maxTime; // 1-max_long Seconds 
+    if(strtol(argv[12],NULL,10) < 1){
+      printf("Time, %ld out of range (1s-2^64s).\n", strtol(argv[12],NULL,10));
+      return 1;
+    } else {
+      maxTime = strtol(argv[12],NULL,10);
+    }
+
+    // filepath
+    char filepath[64];
+    if(access(argv[13], W_OK) == 0){
+      strcpy(filepath, argv[13]);
+      strcat(filepath, "/");
+    } else {
+      printf("Do not have write premissions for path '%s'.\n", argv[13]);
+      return 1;
+    }
 
   // Exit gracefully if user terminates application
   signal(SIGINT, exitGracefully);
@@ -113,10 +221,10 @@ int main() {
     }
 
     // set sampling frequency
-    b->SetFrequency(SAMPLESPEED, true);
+    b->SetFrequency(sampleSpeed, true);
 
     // set input range
-    b->SetInputRange(RANGECENTER);
+    b->SetInputRange(rangeCenter);
 
     // Set the triggers based on configuration
     setTrigger(b, trigger);
@@ -133,11 +241,14 @@ int main() {
   char concatBuffer[32];
   time_t printTime = startTime.tv_sec;
   struct tm *printfTime = localtime(&printTime);
+  strcpy(filename, filepath);
   strftime(concatBuffer, sizeof concatBuffer, "%Y-%m-%d_%Hh%Mm%Ss", printfTime);
-  snprintf(filename, sizeof filename, "%s%06ld", concatBuffer, startTime.tv_usec);
-  snprintf(concatBuffer, sizeof concatBuffer, "_%dMSPS", (int) SAMPLESPEED * 1000);
+  strcat(filename, concatBuffer);  
+  snprintf(concatBuffer, sizeof concatBuffer, "%06ld", startTime.tv_usec);
+  strcat(filename, concatBuffer);  
+  snprintf(concatBuffer, sizeof concatBuffer, "_%dMSPS", (int) sampleSpeed * 1000);
   strcat(filename, concatBuffer);
-  snprintf(concatBuffer, sizeof concatBuffer, "_%04dmV-%04dmV",(int) ((RANGECENTER-0.5)*1000), (int) ((RANGECENTER+0.5)*1000));
+  snprintf(concatBuffer, sizeof concatBuffer, "_%04dmV-%04dmV",(int) ((rangeCenter-0.5)*1000), (int) ((rangeCenter+0.5)*1000));
   strcat(filename, concatBuffer);
   snprintf(concatBuffer, sizeof concatBuffer, "_%06dpsDelay",  (int) trigger.triggerDelay*1000);
   strcat(filename, concatBuffer);
@@ -162,26 +273,26 @@ int main() {
     } else {
     strcat(filename, "_CH");
     if(trigger.triggerSource[i]){
-      snprintf(concatBuffer, sizeof concatBuffer, "%d-BYPASS", i+1);      
-    } else {
       snprintf(concatBuffer, sizeof concatBuffer, "%d-%04dmV", i+1, (int) (trigger.triggerLevel[i]*1000));
+    } else {
+      snprintf(concatBuffer, sizeof concatBuffer, "%d-BYPASS", i+1);      
     }
     strcat(filename, concatBuffer);
     }
   }
 
-  snprintf(concatBuffer, sizeof concatBuffer, "_%08d-Events", MAXEVENTS);
+  snprintf(concatBuffer, sizeof concatBuffer, "_%08ld-Events", maxEvents);
   strcat(filename, concatBuffer);
-  snprintf(concatBuffer, sizeof concatBuffer, "_%08d-Seconds", MAXTIME);
+  snprintf(concatBuffer, sizeof concatBuffer, "_%08ld-Seconds", maxTime);
   strcat(filename, concatBuffer);
   strcat(filename, ".dat");
 
-  printf("%s\n", filename);
+  printf("Logging data in: %s\n", filename);
   
-  m_fd = open("data.dat", O_RDWR | O_CREAT | O_TRUNC | O_BINARY, 0644);
+  m_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC | O_BINARY, 0644);
 
-  /* repeat ten times */
-  for (i = 0; i < MAXEVENTS; i++) {
+  // Repeat untiul maxEvents or maxTime
+  for (i = 0; i < maxEvents; i++) {
     m_drs->GetBoard(m_board);
     m_drs->GetBoard(m_board)->GetBoardType();
 
@@ -191,11 +302,10 @@ int main() {
     }
 
     /* wait for trigger on master board */
-    printf("Waiting for trigger...");
     while (drs->GetBoard(0)->IsBusy()) {
       struct timeval currentTime;
       gettimeofday(&currentTime, NULL);
-      if (killSignalFlag | (currentTime.tv_sec - startTime.tv_sec >= MAXTIME)) {
+      if (killSignalFlag | (currentTime.tv_sec - startTime.tv_sec >= maxTime)) {
         if (m_fd){
           close(m_fd);
         }
@@ -225,10 +335,14 @@ int main() {
     close(m_fd);
   }
   m_fd = 0;
-  printf("Program finished.\n");
+  struct timeval currentTime;
+  gettimeofday(&currentTime, NULL);
+  printf("Program finished after %d events and %ld seconds. \n", i , currentTime.tv_sec-startTime.tv_sec);
 
   /* delete DRS object -> close USB connection */
   delete drs;
+  return 0;
+  
 }
 
 int setTrigger(DRSBoard* board, trigger_t trigger) {
@@ -257,6 +371,9 @@ int setTrigger(DRSBoard* board, trigger_t trigger) {
     board->SetIndividualTriggerLevel(i + 1, trigger.triggerLevel[i]);    
   }  
 
+  const double timeResolution = 1.0 / board->GetNominalFrequency();   // Time resolution in ns
+  const double sampleWindow = timeResolution * 1024;                  // 1024 bins * resloution
+
   board->SetTriggerSource(triggerSource);                             // Trigger Sources
   board->SetTriggerPolarity(trigger.triggerPolarity);                 // Set trigger edge style
   board->SetTriggerDelayNs(sampleWindow - trigger.triggerDelay);      // Set trigger delay
@@ -283,7 +400,6 @@ int SaveWaveforms(int fd) {
     p = buffer;
 
     if (m_evSerial == 1) {
-      printf("Time Cal header\n");
       // time calibration header
       memcpy(p, "TIME", 4);
       p += 4;

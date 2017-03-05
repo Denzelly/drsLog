@@ -1,0 +1,5 @@
+.vscode
+drsLog
+*.o
+*.dat
+*.root
