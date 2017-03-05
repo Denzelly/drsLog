@@ -288,6 +288,7 @@ int main(int argc, char** argv) {
   strcat(filename, ".dat");
 
   printf("Logging data in: %s\n", filename);
+  fflush(stdout);
   
   m_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC | O_BINARY, 0644);
 
@@ -311,6 +312,7 @@ int main(int argc, char** argv) {
         }
         delete drs;
         printf("Program finished after %d events and %ld seconds. \n", i , currentTime.tv_sec-startTime.tv_sec);
+        fflush(stdout);
         return 0;
       }
     }
@@ -329,6 +331,8 @@ int main(int argc, char** argv) {
 
     /* print some progress indication */
     printf("\rEvent #%d read successfully\n", i);
+    fflush(stdout);
+
   }
 
   if (m_fd){
@@ -338,6 +342,8 @@ int main(int argc, char** argv) {
   struct timeval currentTime;
   gettimeofday(&currentTime, NULL);
   printf("Program finished after %d events and %ld seconds. \n", i , currentTime.tv_sec-startTime.tv_sec);
+  fflush(stdout);
+
 
   /* delete DRS object -> close USB connection */
   delete drs;
