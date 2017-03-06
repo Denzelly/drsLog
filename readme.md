@@ -2,7 +2,7 @@
 Command line utility for logging data in a binary format from the [PSI](https://www.psi.ch/) [DRS4](https://www.psi.ch/drs/drs-chip) [evaluation board](https://www.psi.ch/drs/evaluation-board) module.
 
 ## Compile
-Requires GCC, and the [libusb-1.0](http://www.libusb.org/wiki/libusb-1.0) package. On a debian machine, installation of these packageserquires a few lines.
+Requires GCC, and the [libusb-1.0](http://www.libusb.org/wiki/libusb-1.0) package. On a debian machine, installation of these package rquires a few lines.
 
 ```bash
 sudo apt-get update && apt-get upgrade
@@ -18,7 +18,7 @@ make
 ## Execute
 Currently it is set up to use arguments in a list. A use example is displayed.
 ```bash
-./drsLog 5.0 0.45 60.0 R AND 01010 0.1 0.1 0.1 100 50 5 .
+./drsLog 5.0 0.45 60.0 R AND 01010 0.4 0.3 0.2 0.1 100 50 5 .
 ```
 Description of the arguments and their order is shown below.
 ```
@@ -36,4 +36,8 @@ Usage: ./drsLog
       <max events                      (10000) events>
       <max time                        (3600) seconds>
       <path                            ../data>
+```
+Outputs a file in the path directory with a filename similar to
+```
+2017-02-15_16h43m45s345_5000MSPS_-0050mV-0950mV_060000psDelay_Rising_AND_CH1-XXXXXX_CH2-0050mV_CH3-XXXXXX_Ch4-0050mV_EXT-X_00000050-Events_00003600-Seconds.dat
 ```
