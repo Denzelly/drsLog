@@ -6,6 +6,9 @@ Created by:   Sawaiz Syed
 Contents:     Simple example application to read out a several
 DRS4 evaluation board in daisy-chain mode
 
+Outputs a file with a filename
+2017-02-15_16h43m45s345_5000MSPS_-0050mV-0950mV_060000psDelay_Rising_AND_CH1-XXXXXX_CH2-0050mV_CH3-XXXXXX_Ch4-0050mV_EXT-X_00000050-Events_00003600-Seconds.dat
+
 \********************************************************************/
 
 #include <math.h>
