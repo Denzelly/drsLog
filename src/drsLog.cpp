@@ -430,8 +430,8 @@ int main(int argc, char** argv) {
 	}
 
 	//Exit if no events are found after 10 seconds
-	if (killSignalFlag | (cuTime.tv_sec - startTime.tv_sec >= 10))
-	  && (countTrack == 0)
+	if (killSignalFlag | (cuTime.tv_sec - startTime.tv_sec >= 10)
+	    && (countTrack == 0))
 	    {
 	      time(&rawtime);
 	      fclose(data);
