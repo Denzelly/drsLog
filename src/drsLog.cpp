@@ -1,13 +1,26 @@
 /********************************************************************\
 
 Name:         drs4.cpp
+Revised by:   Denzel Brown
 Created by:   Sawaiz Syed
 
-Contents:     Simple example application to read out a several
-DRS4 evaluation board in daisy-chain mode
+Contents:   DRS4 evaluation board read out 
+            application in daisy-chain mode
 
 Outputs a file with a filename
-2017-02-15_16h43m45s345_5000MSPS_-0050mV-0950mV_060000psDelay_Rising_AND_CH1-XXXXXX_CH2-0050mV_CH3-XXXXXX_Ch4-0050mV_EXT-X_00000050-Events_00003600-Seconds.dat
+2018-12-31_00h00m00s.dat
+
+09/5-27/18 msteele: Modified code to work for liquid scintillator detector setup. Original code stored under drslog.bak.
+                    Added non-waveform mode to collect cosmic ray counts at one-minute intervals.
+                    Added toggle between all-particle counts (for pot) vs separating out muons and neutrons (for DRS). 
+                    The program now has a config file called 'config.txt' which feeds the command line arguments. 
+                    To run on a bash shell, run:
+
+11/27/18 Denzelly:  Modified code to exit if 0 runs are found within 10 seconds.
+                    Updated Progession Readout
+                    Changed output filename
+
+sudo ./drsLog $(cat config.txt)
 
 \********************************************************************/
 
@@ -47,135 +60,167 @@ int main(int argc, char** argv) {
   m_board = 0;
   m_writeSR[0] = 0;
   m_triggerCell[0] = 0;
+ 
 
   int i, j;
   DRS* drs;
 
   // Should consider changing to opt
-   if (argc != 14){
-      printf("Usage: %s" , argv[0]);
-      printf("\n      <sample speed (0.1-6)            (5.0)GSPS>");
-      printf("\n      <range center                    (0.450)V>");
-      printf("\n      <trigger delay                   (60.0)ns>");      
-      printf("\n      <trigger type [R|F]              (R)ising edge>");
-      printf("\n      <trigger logic [AND|OR]          (AND) logic>");
-      printf("\n      <trigger [CH1,CH2,CH3,CH4,EXT]   (01010) CH2,CH4>");
-      printf("\n      <trigger voltage CH1             (0.050)V>");
-      printf("\n      <trigger voltage CH2             (0.060)V>");
-      printf("\n      <trigger voltage CH3             (0.800)V>");
-      printf("\n      <trigger voltage CH4             (0.020)V>");
-      printf("\n      <max events                      (10000) events>");
-      printf("\n      <max time                        (3600) seconds>");
-      printf("\n      <path                            ../data>");
-      printf("\n");
-      printf("\n      %s 5.0 0.45 60.0 R AND 01010 0.1 0.1 0.1 100 50 5 .",argv[0]);
-      printf("\n");
-      return 1;
+  /*
+    if (argc != 16){
+    printf("Usage: %s" , argv[0]);
+    printf("\n      <sample speed (0.1-6)            (5.0)GSPS>");
+    printf("\n      <range center                    (0.450)V>");
+    printf("\n      <trigger delay                   (60.0)ns>");      
+    printf("\n      <trigger type [R|F]              (R)ising edge>");
+    printf("\n      <trigger logic [AND|OR]          (AND) logic>");
+    printf("\n      <trigger [CH1,CH2,CH3,CH4,EXT]   (01010) CH2,CH4>");
+    printf("\n      <trigger voltage CH1             (0.050)V>");
+    printf("\n      <trigger voltage CH2             (0.060)V>");
+    printf("\n      <trigger voltage CH3             (0.800)V>");
+    printf("\n      <trigger voltage CH4             (0.020)V>");
+    printf("\n      <max events                      (10000) events>");
+    printf("\n      <max time                        (3600) seconds>");
+    printf("\n      <path                            ./data>");
+    printf("\n      <waveformDisplay                 (F)alse>");
+    printf("\n      <particleID                      (Y)es>");
+    printf("\n");
+    printf("\n      %s 0.7 0 678.0 F AND 11000 -0.0150. -0.015 0 0 0 1000000000 30 /var/www/html/data False N", argv[0]);
+    printf("\n");
+    return 1;
     }
+  */
 
-    trigger_t trigger;
+  trigger_t trigger;
 
-    // Sample Speed
-    double sampleSpeed; // 0.1 to 6 GS/s
-    if((strtof(argv[1],NULL) < 0.1) | (strtof(argv[1],NULL) > 6)){
-      printf("Sample Speed, %f out of range (0.1 GSPS -6 GSPS).\n", strtof(argv[1],NULL));
-      return 1;      
-    } else {
-      sampleSpeed = strtof(argv[01],NULL);
-    }
+  // Sample Speed
+  double sampleSpeed; // 0.1 to 6 GS/s
+  if((strtof(argv[1],NULL) < 0.1) | (strtof(argv[1],NULL) > 6)){
+    printf("Sample Speed, %f out of range (0.1 GSPS -6 GSPS).\n", strtof(argv[1],NULL));
+    return 1;      
+  } else {
+    sampleSpeed = strtof(argv[01],NULL);
+  }
 
-    // Range Center
-    double rangeCenter; // 0 to 0.5 V
-    if((strtof(argv[2],NULL) < 0) | (strtof(argv[2],NULL) > 0.5)){
-      printf("Range Center, %f out of range (0 V - 0.5 V).\n", strtof(argv[2],NULL));
-      return 1;      
-    } else {
-      rangeCenter = strtof(argv[2],NULL);
-    }
+  // Range Center
+  double rangeCenter; // 0 to 0.5 V
+  if((strtof(argv[2],NULL) < 0) | (strtof(argv[2],NULL) > 0.5)){
+    printf("Range Center, %f out of range (0 V - 0.5 V).\n", strtof(argv[2],NULL));
+    return 1;      
+  } else {
+    rangeCenter = strtof(argv[2],NULL);
+  }
 
-    // Trigger Delay
-    if((strtof(argv[3],NULL) < 0) | ((strtof(argv[3],NULL)) > ((1/sampleSpeed)*1024))){
-      printf("Trigger delay, %f, out of range (0 ns - %f ns).\n", strtof(argv[3],NULL), ((1/sampleSpeed)*1024));
-      return 1;
-    } else {
-      trigger.triggerDelay = strtof(argv[3],NULL);
-    }
+  // Trigger Delay
+  if((strtof(argv[3],NULL) < 0) | ((strtof(argv[3],NULL)) > ((1/sampleSpeed)*1024))){
+    printf("Trigger delay, %f, out of range (0 ns - %f ns).\n", strtof(argv[3],NULL), ((1/sampleSpeed)*1024));
+    return 1;
+  } else {
+    trigger.triggerDelay = strtof(argv[3],NULL);
+  }
 
-    // Trigger Edge polarity: fasle = Rising edge, true = falling edge
-    if(argv[4][0] == 'R'){
-      trigger.triggerPolarity = false;
-    } else if (argv[4][0] == 'F') {
-      trigger.triggerPolarity = true;
-    } else {
-      printf("Trigger edge type, %s not vaild, enter 'R' for rising or 'F' for falling.\n", argv[4]);
-      return 1;
-    }
+  // Trigger Edge polarity: fasle = Rising edge, true = falling edge
+  if(argv[4][0] == 'R'){
+    trigger.triggerPolarity = false;
+  } else if (argv[4][0] == 'F') {
+    trigger.triggerPolarity = true;
+  } else {
+    printf("Trigger edge type, %s not vaild, enter 'R' for rising or 'F' for falling.\n", argv[4]);
+    return 1;
+  }
 
-    // Trigger Logic: false = OR, true = AND
-    if(!strcmp(argv[5],"AND")){
-      trigger.triggerLogic = true;
-    } else if (!strcmp(argv[5],"OR")){
-      trigger.triggerLogic = false;
-    } else {
-      printf("Logic type, %s is not valid. Enter either 'AND' or 'OR'.\n", argv[5]);
-    }
+  // Trigger Logic: false = OR, true = AND
+  if(!strcmp(argv[5],"AND")){
+    trigger.triggerLogic = true;
+  } else if (!strcmp(argv[5],"OR")){
+    trigger.triggerLogic = false;
+  } else {
+    printf("Logic type, %s is not valid. Enter either 'AND' or 'OR'.\n", argv[5]);
+  }
 
-    // Trigger
-    if(strlen(argv[6]) == 5){
-      for(unsigned int i = 0 ; i < sizeof(argv[6])/sizeof(argv[6][0]) ; i ++){
-        if(argv[6][i] == '0'){
-          trigger.triggerSource[i] = 0;
-        } else if (argv[6][i] == '1'){
-          trigger.triggerSource[i] = 1;
-        } else {
-          printf("Trigger argument for CH%d, '%c' is not valid it must be either '0' (diabled) or '1'(enabled).\n", i+1, argv[6][i]);
-          return 1;
-        }
-      }
-    } else {
-      printf("Trigger number of arguments, %d do not match, you must have 5 (CH1,CH2,CH3,Ch4,EXT).\n", strlen(argv[6]));
-      return 1;
-    }
-
-    // Trigger Levels
-    for(int i = 0 ; i < 4 ; i ++){
-      double level = strtod(argv[7+i],NULL);
-      double minRange = rangeCenter - 0.5;
-      double maxRange = rangeCenter + 0.5;
-      if((level < minRange) | (level > maxRange)){
-        printf("Trigger level for CH%d, %f out of range %f V - %f V.\n", i+1, level, minRange, maxRange);
-        return 1;
+  // Trigger
+  if(strlen(argv[6]) == 5){
+    for(unsigned int i = 0 ; i < sizeof(argv[6])/sizeof(argv[6][0]) ; i ++){
+      if(argv[6][i] == '0'){
+	trigger.triggerSource[i] = 0;
+      } else if (argv[6][i] == '1'){
+	trigger.triggerSource[i] = 1;
       } else {
-        trigger.triggerLevel[i] = level;
+	printf("Trigger argument for CH%d, '%c' is not valid it must be either '0' (diabled) or '1'(enabled).\n", i+1, argv[6][i]);
+	return 1;
       }
     }
+  } else {
+    printf("Trigger number of arguments, %d do not match, you must have 5 (CH1,CH2,CH3,Ch4,EXT).\n", strlen(argv[6]));
+    return 1;
+  }
+
+  // Trigger Levels
+  for(int i = 0 ; i < 4 ; i ++){
+    double level = strtod(argv[7+i],NULL);
+    double minRange = rangeCenter - 0.5;
+    double maxRange = rangeCenter + 0.5;
+    if((level < minRange) | (level > maxRange)){
+      printf("Trigger level for CH%d, %f out of range %f V - %f V.\n", i+1, level, minRange, maxRange);
+      return 1;
+    } else {
+      trigger.triggerLevel[i] = level;
+    }
+  }
     
-    // Max Events
-    long maxEvents; // 1-max_long Events 
-    if(strtol(argv[11],NULL,10) < 1){
-      printf("Events, %ld out of range (1 Event - 2^64 Events).\n", strtol(argv[11],NULL,10));
-      return 1;
-    } else {
-      maxEvents = strtol(argv[11],NULL,10);
-    }
+  // Max Events
+  long maxEvents; // 1-max_long Events 
+  if(strtol(argv[11],NULL,10) < 1){
+    printf("Events, %ld out of range (1 Event - 2^64 Events).\n", strtol(argv[11],NULL,10));
+    return 1;
+  } else {
+    maxEvents = strtol(argv[11],NULL,10);
+  }
+  
+  //Max Time
+  long maxTime; // 1-max_long Seconds 
+  if(strtol(argv[12],NULL,10) < 1){
+    printf("Time, %ld out of range (1s-2^64s).\n", strtol(argv[12],NULL,10));
+    return 1;
+  } else {
+    maxTime = strtol(argv[12],NULL,10);
+  }
 
-    long maxTime; // 1-max_long Seconds 
-    if(strtol(argv[12],NULL,10) < 1){
-      printf("Time, %ld out of range (1s-2^64s).\n", strtol(argv[12],NULL,10));
-      return 1;
-    } else {
-      maxTime = strtol(argv[12],NULL,10);
-    }
+  // filepath
+  char filepath[64];
+  if(access(argv[13], W_OK) == 0){
+    strcpy(filepath, argv[13]);
+    strcat(filepath, "/");
+  } else {
+    printf("Do not have write premissions for path '%s'.\n", argv[13]);
+    return 1;
+  }
 
-    // filepath
-    char filepath[64];
-    if(access(argv[13], W_OK) == 0){
-      strcpy(filepath, argv[13]);
-      strcat(filepath, "/");
-    } else {
-      printf("Do not have write premissions for path '%s'.\n", argv[13]);
-      return 1;
-    }
+  // waveformDisplay Logic: false = no, true = yes
+  bool waveformDisplay = false;
+    
+  if(argv[14][0] == 'T'){
+    waveformDisplay = true;
+    printf("Saving waveforms!\n");
+  } else if (argv[14][0] == 'F') {
+    waveformDisplay = false;
+    // printf("Saving counts only\n");
+  } else {
+    printf("Waveform display, %s not vaild, enter 'T' for waveforms or 'F' for counts.\n", argv[14]);
+    return 1;
+  }
+
+  bool particleID = false;
+
+  if(argv[15][0] == 'Y'){
+    particleID = true;
+    printf("Tracking muons and neutrons separately!\n");
+  } else if(argv[15][0] == 'N'){
+    //printf("Tracking total particle counts\n");
+  } else {
+    // printf("particleID, %s not vaild, enter 'Y' for muon/neutron tracking or 'N' for total counts only.\n", argv[15]);
+    return 1;
+  }
 
   // Exit gracefully if user terminates application
   signal(SIGINT, exitGracefully);
@@ -187,11 +232,12 @@ int main(int argc, char** argv) {
 
   /* show any found board(s) */
   for (i = 0; i < drs->GetNumberOfBoards(); i++) {
-    b = drs->GetBoard(i);
-    printf("Found DRS4 evaluation board, serial #%d, firmware revision %d\n",
-           b->GetBoardSerialNumber(), b->GetFirmwareVersion());
+    DRSBoard* b = drs->GetBoard(i);
+    // printf("Found DRS4 evaluation board, serial #%d, firmware revision %d\n",
+    // b->GetBoardSerialNumber(), b->GetFirmwareVersion());
     if (b->GetBoardType() < 8) {
       printf("Found pre-V4 board, aborting\n");
+      delete drs;
       return 0;
     }
   }
@@ -199,6 +245,7 @@ int main(int argc, char** argv) {
   /* exit if no board found */
   if (drs->GetNumberOfBoards() == 0) {
     printf("No DRS4 evaluation board found\n");
+    delete drs;
     return 0;
   }
 
@@ -217,6 +264,7 @@ int main(int argc, char** argv) {
           21260) {  // this only works with recent firmware versions
         if (b->GetScaler(5) > 300000)  // check if external clock is connected
           b->SetRefclk(true);          // switch to external reference clock
+	//printf("Found slave board #%d, setting external reference clock\n", b->GetBoardSerialNumber());
       }
     }
 
@@ -234,8 +282,10 @@ int main(int argc, char** argv) {
   // Time
   struct timeval startTime;
   gettimeofday(&startTime, NULL);
-  printf("Starting time: %s", ctime(&startTime.tv_sec));
+  //printf("Starting time: %s", ctime(&startTime.tv_sec));
 
+
+  
   // Create the filename
   char filename[256];
   char concatBuffer[32];
@@ -244,47 +294,26 @@ int main(int argc, char** argv) {
   strcpy(filename, filepath);
   strftime(concatBuffer, sizeof concatBuffer, "%Y-%m-%d_%Hh%Mm%Ss", printfTime);
   strcat(filename, concatBuffer);  
-  snprintf(concatBuffer, sizeof concatBuffer, "%06ld", startTime.tv_usec);
-  strcat(filename, concatBuffer);  
-  snprintf(concatBuffer, sizeof concatBuffer, "_%dMSPS", (int) sampleSpeed * 1000);
-  strcat(filename, concatBuffer);
-  snprintf(concatBuffer, sizeof concatBuffer, "_%04dmV-%04dmV",(int) ((rangeCenter-0.5)*1000), (int) ((rangeCenter+0.5)*1000));
-  strcat(filename, concatBuffer);
-  snprintf(concatBuffer, sizeof concatBuffer, "_%06dpsDelay",  (int) trigger.triggerDelay*1000);
-  strcat(filename, concatBuffer);
-  if(trigger.triggerPolarity){
-    strcat(filename, "_Fall");
-  } else {
-    strcat(filename, "_Rise");
-  }
-  if(trigger.triggerLogic){
-    strcat(filename, "_AND");
-  } else {   
-    strcat(filename, "__OR");
-  }
-  for (unsigned int i = 0; i < sizeof(trigger.triggerSource) / sizeof(trigger.triggerSource[0]) ; i++) {
+  
+  /*
+    for (unsigned int i = 0; i < sizeof(trigger.triggerSource) / sizeof(trigger.triggerSource[0]) ; i++) {
     if(i == sizeof(trigger.triggerSource) / sizeof(trigger.triggerSource[0])-1){
-      strcat(filename, "_EXT-");
-      if(trigger.triggerSource[i]){
-        strcat(filename, "T");
-      } else {
-        strcat(filename, "F");
-      }
+    strcat(filename, "_EXT-");
+    if(trigger.triggerSource[i]){
+    strcat(filename, "T");
+    } else {
+    strcat(filename, "F");
+    }
     } else {
     strcat(filename, "_CH");
     if(trigger.triggerSource[i]){
-      snprintf(concatBuffer, sizeof concatBuffer, "%d-%04dmV", i+1, (int) (trigger.triggerLevel[i]*1000));
-    } else {
-      snprintf(concatBuffer, sizeof concatBuffer, "%d-BYPASS", i+1);      
+    snprintf(concatBuffer, sizeof concatBuffer, "%d-%04dmV", i+1, (int) (trigger.triggerLevel[i]*1000));
     }
     strcat(filename, concatBuffer);
     }
-  }
-
-  snprintf(concatBuffer, sizeof concatBuffer, "_%08ld-Events", maxEvents);
-  strcat(filename, concatBuffer);
-  snprintf(concatBuffer, sizeof concatBuffer, "_%08ld-Seconds", maxTime);
-  strcat(filename, concatBuffer);
+    }
+  */
+ 
   strcat(filename, ".dat");
 
   printf("Logging data in: %s\n", filename);
@@ -292,63 +321,204 @@ int main(int argc, char** argv) {
   
   m_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC | O_BINARY, 0644);
 
-  // Repeat untiul maxEvents or maxTime
-  for (i = 0; i < maxEvents; i++) {
-    m_drs->GetBoard(m_board);
-    m_drs->GetBoard(m_board)->GetBoardType();
+  if (waveformDisplay == true) { 
+    
+    // Repeat untiul maxEvents or maxTime
+    for (i = 0; i < maxEvents; i++) {
 
-    /* start boards (activate domino wave), master is last */
-    for (j = drs->GetNumberOfBoards() - 1; j >= 0; j--) {
-      drs->GetBoard(j)->StartDomino();
-    }
+      m_drs->GetBoard(m_board);
+      m_drs->GetBoard(m_board)->GetBoardType();
 
-    /* wait for trigger on master board */
-    while (drs->GetBoard(0)->IsBusy()) {
-      struct timeval currentTime;
-      gettimeofday(&currentTime, NULL);
-      if (killSignalFlag | (currentTime.tv_sec - startTime.tv_sec >= maxTime)) {
-        if (m_fd){
-          close(m_fd);
-        }
-        delete drs;
-        printf("Program finished after %d events and %ld seconds. \n", i , currentTime.tv_sec-startTime.tv_sec);
-        fflush(stdout);
-        return 0;
+      /* start boards (activate domino wave), master is last */
+      for (j = drs->GetNumberOfBoards() - 1; j >= 0; j--) {
+	drs->GetBoard(j)->StartDomino();
       }
-    }
 
-    for (j = 0; j < drs->GetNumberOfBoards(); j++) {
-      m_board = j;
-      drs->GetBoard(j);
-      if (drs->GetBoard(0)->IsBusy()) {
-        i--; /* skip that event, must be some fake trigger */
-        break;
+      /* wait for trigger on master board */
+      while (drs->GetBoard(0)->IsBusy()) {
+	struct timeval cTime;
+	gettimeofday(&cTime, NULL);
+	if (killSignalFlag | (cTime.tv_sec - startTime.tv_sec >= maxTime)) {
+	  if (m_fd){
+	    close(m_fd);
+	  }
+	  delete drs;
+	  printf("Program finished after %d events and %ld seconds. \n", i , cTime.tv_sec-startTime.tv_sec);
+	  fflush(stdout);
+	  return 0;
+	}
       }
-      m_board = j;
-      ReadWaveforms();
-      SaveWaveforms(m_fd);
+
+      for (j = 0; j < drs->GetNumberOfBoards(); j++) {
+	m_board = j;
+	drs->GetBoard(j);
+	if (drs->GetBoard(0)->IsBusy()) {
+	  i--; /* skip that event, must be some fake trigger */
+	  break;
+	}
+	m_board = j;
+
+	ReadWaveforms();
+	SaveWaveforms(m_fd);
+      }
+    
+
+      /* print some progress indication */
+      printf("\rEvent #%d read successfully\n", i);
+      fflush(stdout);
+
     }
 
-    /* print some progress indication */
-    printf("\rEvent #%d read successfully\n", i);
+    if (m_fd){
+      close(m_fd);
+    }
+    m_fd = 0;
+    struct timeval currentTime;
+    gettimeofday(&currentTime, NULL);
+    printf("Program finished after %d events and %ld seconds. \n", i , currentTime.tv_sec-startTime.tv_sec);
     fflush(stdout);
 
-  }
 
-  if (m_fd){
-    close(m_fd);
-  }
-  m_fd = 0;
-  struct timeval currentTime;
-  gettimeofday(&currentTime, NULL);
-  printf("Program finished after %d events and %ld seconds. \n", i , currentTime.tv_sec-startTime.tv_sec);
-  fflush(stdout);
+    /* delete DRS object -> close USB connection */
+    delete drs;
+    return 0;
+  } else {
+    //printf("Not saving waveforms!\n");
+    FILE * data;
+    data = fopen(filename, "a");
+    int minuteTrack = 0;
+    int countTrack = 0;
+    int countMuon = 0;
+    int countNeutron = 0;
+    int countMinute = 0;
+    int countMinuteMuon = 0;
+    int countMinuteNeutron = 0;
+    int minuteHold = 0;
+    int isMuon = -1;
 
+    time_t rawtime;
+    // Repeat until maxTime
 
-  /* delete DRS object -> close USB connection */
-  delete drs;
-  return 0;
+    while(true){
+      //  printf("Starting data collection!\n");
+      
+      m_drs->GetBoard(m_board);
+      m_drs->GetBoard(m_board)->GetBoardType();
+
+      /* start boards (activate domino wave), master is last */
+      for (j = drs->GetNumberOfBoards() - 1; j >= 0; j--) {
+	drs->GetBoard(j)->StartDomino();
+      }
+     
+      
+      /* wait for trigger on master board */
+      while (drs->GetBoard(0)->IsBusy()) {
+	struct timeval cuTime;
+
+	gettimeofday(&cuTime, NULL);
+	
+	if (killSignalFlag | (cuTime.tv_sec - startTime.tv_sec >= maxTime)) {
   
+	  time( &rawtime );
+	  fprintf(data, "%d %d %d %s", countMinute, countMinuteMuon, countMinuteNeutron, asctime(localtime(&rawtime)));
+	  fclose(data);
+	  delete drs;
+	  printf("Program finished after %d events and %ld seconds. \n",
+		 countTrack , cuTime.tv_sec-startTime.tv_sec);
+	  fflush(data);
+	  return 0;
+	}
+
+	//Exit if no events are found after 10 seconds
+	if (killSignalFlag | (cuTime.tv_sec - startTime.tv_sec >= 10))
+	  && (countTrack == 0)
+	    {
+	      time(&rawtime);
+	      fclose(data);
+	      delete drs;
+	      printf("No Events Recorded. Exiting. \n");
+	      fflush(data);
+	      return 10;
+	    }
+      }
+	  
+      //Code only reaches this point if there is an event; otherwise will stay in previous loop forever.
+      //Next section works because only 1 board; otherwise would have multiple printf statements
+      for (j = 0; j < drs->GetNumberOfBoards(); j++) {
+	m_board = j;
+	drs->GetBoard(j);
+	if (drs->GetBoard(0)->IsBusy()) {
+	  i--; /* skip that event, must be some fake trigger */
+	  break;
+	}
+	int searchWaveforms();
+	m_board = j;
+	if (particleID == true) {
+	  ReadWaveforms();
+	  isMuon = searchWaveforms();
+
+	  if (isMuon == 1) {
+	    countMuon++;
+	    countMinuteMuon++;
+	  }
+	  if (isMuon == 0){
+	    countNeutron++;
+	    countMinuteNeutron++;
+	  
+	  }
+	}
+	struct timeval curTime;
+	gettimeofday(&curTime, NULL);
+
+	if ((countTrack == 1))
+	  printf("Successfully Recording Events! \n");
+
+	time( &rawtime );
+
+	countTrack++;
+	countMinute++;
+
+        minuteTrack = (curTime.tv_sec - startTime.tv_sec) / 60;
+	if (minuteTrack != minuteHold) {
+	  fprintf(data, "%d %d %d %s", countMinute-1, countMinuteMuon-1, countMinuteNeutron-1, asctime(localtime(&rawtime)));
+	  fflush(data);
+	  /* print some progress indication */
+	  printf("%d events saved this minute\n", countMinute-1);
+	  countMinute = 1;
+	  countMinuteMuon = 1;
+	  countMinuteNeutron = 1;
+	}
+	minuteHold = minuteTrack;
+
+      }
+    
+      fflush(stdout);
+      i++;
+    }
+  
+    if (m_fd){
+      close(m_fd);
+    }
+    m_fd = 0;
+    struct timeval currTime;
+    gettimeofday(&currTime, NULL);
+
+    printf("Program finished after %d events and %ld seconds. \n", countTrack-1 , currTime.tv_sec-startTime.tv_sec);
+
+    // time_t rawtime;
+    time( &rawtime );
+    fprintf(data, "%d %d %d %s", countMinute, countMinuteMuon, countMinuteNeutron, asctime(localtime(&rawtime)));
+    
+    fflush(stdout);
+    fclose(data);
+
+    /* delete DRS object -> close USB connection */
+    delete drs;
+    return 0;
+
+  }
+  
+
 }
 
 int setTrigger(DRSBoard* board, trigger_t trigger) {
@@ -393,6 +563,7 @@ int SaveWaveforms(int fd) {
   unsigned short d;
   float t;
   int size;
+  m_nBoards = 1;
   static unsigned char* buffer;
   static int buffer_size = 0;
 
@@ -484,7 +655,7 @@ int SaveWaveforms(int fd) {
             // in cascaded mode, save 1024 values as averages of the 2048 values
             d = (unsigned short)(((m_waveform[b][i][j] +
                                    m_waveform[b][i][j + 1]) /
-                                      2000.0 -
+				  2000.0 -
                                   m_inputRange + 0.5) *
                                  65535);
             *(unsigned short*)p = d;
@@ -594,6 +765,97 @@ void ReadWaveforms() {
       }
     }
   }
+}
+
+int searchWaveforms() {
+  // char str[80];
+  float waveTopPad[1024];
+  float waveBotPad[1024];
+  // float waveTopPadHold[1024];
+  // float waveBotPadHold[1024];
+
+  for (int i = 0; i < 1024; i++) {
+    //  waveTopPadHold[i] = -1;
+    //   waveBotPadHold[i] = -1;
+    waveTopPad[i] = -1;
+    waveBotPad[i] = -1;
+
+  }
+  
+  m_nBoards = 1;
+
+  float maxTopHeight = -1;
+  float maxBotHeight = -1;
+
+  int isMuon = -1;
+  int k = 0;
+  // int topk = 0;
+  //int botk = 0;
+  
+  for (int j = 0; j < m_waveDepth; j++) {
+    // save binary date as 16-bit value:
+    // 0 = -0.5V,  65535 = +0.5V    for range 0
+    // 0 = -0.05V, 65535 = +0.95V   for range 0.45
+
+    if (m_waveDepth == 2048) {
+
+      //NOT ACTUALLY USED
+      // in cascaded mode, save 1024 values as averages of the 2048 values
+      waveTopPad[j/2] = (unsigned short)(((m_waveform[0][0][j] + m_waveform[0][0][j + 1]) /	2000.0 - m_inputRange + 0.5) * 65535);
+      waveBotPad[j/2] = (unsigned short)(((m_waveform[0][1][j] + m_waveform[0][1][j + 1]) /	2000.0 - m_inputRange + 0.5) * 65535);
+      j++;
+    } else {
+      //This one is used!
+      //convert negative signal to positive
+
+      // waveTopPad[j] = (((m_waveform[0][0][j] / 1000.0) - m_inputRange +	0.5) *  65535)*-1;
+      // waveBotPad[j] = ((m_waveform[0][1][j] / 1000.0 - m_inputRange +	0.5) *  65535)*-1;
+     
+      waveTopPad[j] = ((m_waveform[0][0][j] ) - m_inputRange)*-1;
+      waveBotPad[j] = ((m_waveform[0][1][j] ) - m_inputRange)*-1;
+
+ 
+      
+      //  j++;
+    }
+    // (unsigned short)((m_waveform[b][i][j] / 1000.0 - m_inputRange +
+    //    0.5) *
+    // 65535);
+  }
+
+  for (int k = 0; k < 1024; k++)
+    {
+
+      // if (waveTopPadHold[k] == waveTopPad[k] || waveBotPadHold[k] == waveBotPad[k] ) continue;
+     
+      //Remember: signals are negative, but the above section flips them to positive values
+      //      printf("\nk is %d, ", k);
+      if (!isnan(waveTopPad[k]) && waveTopPad[k] < 10000 && waveTopPad[k] > -1) {
+	if (waveTopPad[k] > maxTopHeight) {
+	  maxTopHeight = waveTopPad[k];
+	  //topk = k;
+	}
+	//	printf("top is %f ", waveTopPad[k]);
+      }
+      if (!isnan(waveBotPad[k]) && waveBotPad[k] < 10000 && waveBotPad[k] > -1) {
+	if (waveBotPad[k] > maxBotHeight) {
+	  maxBotHeight = waveBotPad[k];
+	  //botk = k;
+	}
+	//	printf("bot is %f ", waveBotPad[k]);
+      }
+      //  printf("k is %d, top is %f, bot is %f\n", k, waveTopPad[k], waveBotPad[k]);
+      
+    }
+ 
+  if (maxTopHeight > 20 || maxBotHeight > 20) isMuon = 1;
+  if (maxTopHeight < 20 && maxBotHeight < 20) isMuon = 0;
+
+  //  printf("\nPeak voltages for this event: %f mV at %d (top) and %f mV at %d (bottom). isMuon is: %d (1=muon, 0=neutron)\n", maxTopHeight, topk, maxBotHeight, botk, isMuon);
+
+  // printf("Offset is %d", m_inputRange);
+
+  return isMuon;
 }
 
 void GetTimeStamp(TIMESTAMP& ts) {
